@@ -14,6 +14,16 @@ public:
         return Cardinal(false, value);
     }
 
+    static Cardinal Finite(int value)
+    {
+        if (value < 0)
+        {
+            throw std::out_of_range("Negative cardinal");
+        }
+
+        return Cardinal(false, static_cast<size_t>(value));
+    }
+
     static Cardinal CountableInfinity()
     {
         return Cardinal(true, 0);
@@ -53,6 +63,43 @@ public:
 
         return static_cast<int>(value);
     }
+    
+    bool operator==(const Cardinal& other) const
+    {
+        return Compare(other) == 0;
+    }
+    
+    bool operator!=(const Cardinal& other) const
+    {
+        return Compare(other) != 0;
+    }
+    
+    bool operator<(const Cardinal& other) const
+    {
+        return Compare(other) < 0;
+    }
+    
+    bool operator<=(const Cardinal& other) const
+    {
+        return Compare(other) <= 0;
+    }
+    
+    bool operator>(const Cardinal& other) const
+    {
+        return Compare(other) > 0;
+    }
+    
+    bool operator>=(const Cardinal& other) const
+    {
+        return Compare(other) >= 0;
+    }
+    
+    std::string ToString() const
+    {
+        return is_infinite ? "countable infinity" : std::to_string(value);
+    }
+    
+    private:
 
     int Compare(const Cardinal& other) const
     {
@@ -79,46 +126,10 @@ public:
         return 0;
     }
 
-    bool operator==(const Cardinal& other) const
-    {
-        return Compare(other) == 0;
-    }
-
-    bool operator!=(const Cardinal& other) const
-    {
-        return Compare(other) != 0;
-    }
-
-    bool operator<(const Cardinal& other) const
-    {
-        return Compare(other) < 0;
-    }
-
-    bool operator<=(const Cardinal& other) const
-    {
-        return Compare(other) <= 0;
-    }
-
-    bool operator>(const Cardinal& other) const
-    {
-        return Compare(other) > 0;
-    }
-
-    bool operator>=(const Cardinal& other) const
-    {
-        return Compare(other) >= 0;
-    }
-
-    std::string ToString() const
-    {
-        return is_infinite ? "countable infinity" : std::to_string(value);
-    }
-
-private:
     bool is_infinite;
     size_t value;
 
-    Cardinal(bool infinite, size_t finite_value) : is_infinite(infinite), value(finite_value) {}
+    Cardinal(bool infinite, size_t finite_value) : is_infinite(infinite), value(infinite ? 0 : finite_value) {}
 };
 
 #endif // CARDINAL_H
