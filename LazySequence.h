@@ -5,6 +5,7 @@
 #include <functional>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 #include "ConcatNode.h"
 #include "FiniteNode.h"
@@ -94,7 +95,7 @@ public:
 
     LazySequence(const LazySequence<T>& other) : root(other.root) {}
 
-    LazySequence(LazySequence<T>&& other) noexcept : root(static_cast<SharedPtr<LazyNode<T>>&&>(other.root)) {}
+    LazySequence(LazySequence<T>&& other) noexcept : root(std::move(other.root)) {}
 
     LazySequence<T>& operator=(const LazySequence<T>& other)
     {
@@ -110,7 +111,7 @@ public:
     {
         if (this != &other)
         {
-            root = static_cast<SharedPtr<LazyNode<T>>&&>(other.root);
+            root = std::move(other.root);
         }
 
         return *this;

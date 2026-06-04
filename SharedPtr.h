@@ -3,20 +3,21 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <utility>
 
 template <class T>
 class SharedPtr
 {
 public:
-    SharedPtr() noexcept : ptr(nullptr), counter(nullptr) {}
+    SharedPtr() noexcept : ptr(nullptr), owner_count(nullptr) {}
 
-    explicit SharedPtr(T* raw_ptr) : ptr(raw_ptr), counter(nullptr)
+    explicit SharedPtr(T* raw_ptr) : ptr(raw_ptr), owner_count(nullptr)
     {
         if (ptr != nullptr)
         {
             try
             {
-                counter = new size_t(1);
+                owner_count = new size_t(1);
             }
             catch (...)
             {
@@ -27,15 +28,15 @@ public:
         }
     }
 
-    SharedPtr(const SharedPtr<T>& other) noexcept : ptr(other.ptr), counter(other.counter)
+    SharedPtr(const SharedPtr<T>& other) noexcept : ptr(other.ptr), owner_count(other.owner_count)
     {
         AddRef();
     }
 
-    SharedPtr(SharedPtr<T>&& other) noexcept : ptr(other.ptr), counter(other.counter)
+    SharedPtr(SharedPtr<T>&& other) noexcept : ptr(other.ptr), owner_count(other.owner_count)
     {
         other.ptr = nullptr;
-        other.counter = nullptr;
+        other.owner_count = nullptr;
     }
 
     ~SharedPtr()
@@ -48,16 +49,16 @@ public:
         if (this != &other)
         {
             T* new_ptr = other.ptr;
-            size_t* new_counter = other.counter;
+            size_t* new_owner_count = other.owner_count;
 
-            if (new_counter != nullptr)
+            if (new_owner_count != nullptr)
             {
-                ++(*new_counter);
+                ++(*new_owner_count);
             }
 
             Release();
             ptr = new_ptr;
-            counter = new_counter;
+            owner_count = new_owner_count;
         }
 
         return *this;
@@ -69,9 +70,9 @@ public:
         {
             Release();
             ptr = other.ptr;
-            counter = other.counter;
+            owner_count = other.owner_count;
             other.ptr = nullptr;
-            other.counter = nullptr;
+            other.owner_count = nullptr;
         }
 
         return *this;
@@ -114,7 +115,7 @@ public:
 
     size_t UseCount() const noexcept
     {
-        return (counter == nullptr) ? 0 : *counter;
+        return (owner_count == nullptr) ? 0 : *owner_count;
     }
 
     void Reset()
@@ -130,35 +131,35 @@ public:
         }
 
         SharedPtr<T> replacement(raw_ptr);
-        *this = static_cast<SharedPtr<T>&&>(replacement);
+        *this = std::move(replacement);
     }
 
 private:
     T* ptr;
-    size_t* counter;
+    size_t* owner_count;
 
     void AddRef() noexcept
     {
-        if (counter != nullptr)
+        if (owner_count != nullptr)
         {
-            ++(*counter);
+            ++(*owner_count);
         }
     }
 
     void Release() noexcept
     {
-        if (counter != nullptr)
+        if (owner_count != nullptr)
         {
-            --(*counter);
-            if (*counter == 0)
+            --(*owner_count);
+            if (*owner_count == 0)
             {
                 delete ptr;
-                delete counter;
+                delete owner_count;
             }
         }
 
         ptr = nullptr;
-        counter = nullptr;
+        owner_count = nullptr;
     }
 };
 
