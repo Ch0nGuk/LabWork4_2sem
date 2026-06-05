@@ -8,6 +8,8 @@
 #include "LazyNode.h"
 #include "SharedPtr.h"
 
+
+
 inline Ordinal GetRightResidualIndex(const Ordinal& left_length, const Ordinal& global_index)
 {
     size_t left_omega = left_length.GetOmegaCoeff();
@@ -104,7 +106,7 @@ public:
     {
         size_t left_count = left->GetMaterializedCount();
         size_t right_count = right->GetMaterializedCount();
-        if (right_count > std::numeric_limits<size_t>::max() - left_count)
+        if (right_count + left_count > std::numeric_limits<size_t>::max())
         {
             throw std::overflow_error("Materialized count overflow");
         }

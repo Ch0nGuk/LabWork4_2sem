@@ -260,7 +260,10 @@ public:
         EnsureFiniteLength("Slice is implemented only for finite LazySequence");
 
         int length = GetLength();
-        ValidateSliceRange(start_index, count, length);
+        if (start_index < 0 || count < 0 || start_index > length || count > length - start_index)
+        {
+            throw std::out_of_range("Index out of range");
+        }
 
         int new_size = length - count;
         if (new_size == 0)
@@ -270,7 +273,7 @@ public:
 
         const T& default_item = (start_index > 0) ? Get(0) : Get(start_index + count);
         DynamicArray<T> data(new_size, default_item);
-        int target_index = 0;
+        int target_index = 0;       
 
         for (int index = 0; index < start_index; index++)
         {
@@ -292,7 +295,10 @@ public:
         EnsureFiniteLength("Slice replacement is implemented only for finite LazySequence");
 
         int length = GetLength();
-        ValidateSliceRange(start_index, count, length);
+        if (start_index < 0 || count < 0 || start_index > length || count > length - start_index)
+        {
+            throw std::out_of_range("Index out of range");
+        }
 
         int replacement_size = replacement.GetLength();
         if (replacement_size > std::numeric_limits<int>::max() - (length - count))
@@ -490,13 +496,6 @@ private:
         }
     }
 
-    static void ValidateSliceRange(int start_index, int count, int length)
-    {
-        if (start_index < 0 || count < 0 || start_index > length || count > length - start_index)
-        {
-            throw std::out_of_range("Index out of range");
-        }
-    }
 
 protected:
     Sequence<T>* AppendInternal(const T& item) override

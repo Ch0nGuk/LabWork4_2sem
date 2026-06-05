@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 template <typename T>
-class DynamicArray // изучить конструктор перемещения
+class DynamicArray
 {
 private:
     T* data;

@@ -475,12 +475,12 @@ namespace
         AssertTrue(q.IsNull(), "SharedPtr reset makes target null");
         AssertEqual(p.UseCount(), static_cast<size_t>(1), "SharedPtr reset decrements count");
 
-        SharedPtr<int> moved(static_cast<SharedPtr<int>&&>(p));
+        SharedPtr<int> moved(std::move(p));
         AssertTrue(p.IsNull(), "SharedPtr move constructor clears source");
         AssertEqual(moved.UseCount(), static_cast<size_t>(1), "SharedPtr move constructor preserves count");
 
         SharedPtr<int> assigned;
-        assigned = static_cast<SharedPtr<int>&&>(moved);
+        assigned = std::move(moved);
         AssertTrue(moved.IsNull(), "SharedPtr move assignment clears source");
         AssertEqual(assigned.UseCount(), static_cast<size_t>(1), "SharedPtr move assignment preserves count");
 
