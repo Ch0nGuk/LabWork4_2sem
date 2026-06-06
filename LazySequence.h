@@ -11,6 +11,7 @@
 #include "FiniteNode.h"
 #include "InsertNode.h"
 #include "LazyNode.h"
+#include "MapNode.h"
 #include "MutableArraySequence.h"
 #include "RecurrenceNode.h"
 #include "Sequence.h"
@@ -19,6 +20,9 @@
 template <class T>
 class LazySequence : public Sequence<T>
 {
+    template <class>
+    friend class LazySequence;
+
 private:
     class LazySequenceEnumerator : public IEnumerator<T>
     {
@@ -74,6 +78,8 @@ private:
     };
 
 public:
+    using Sequence<T>::Map;
+
     LazySequence()
         : root(SharedPtr<LazyNode<T>>(new FiniteNode<T>())) {}
 
@@ -320,6 +326,20 @@ public:
         }
 
         return new LazySequence<T>(SharedPtr<LazyNode<T>>(new FiniteNode<T>(data)));
+    }
+
+    template <class TResult>
+    LazySequence<TResult>* Map(TResult (*mapper)(T)) const
+    {
+        if (mapper == nullptr)
+        {
+            throw std::invalid_argument("Mapper is null");
+        }
+
+        SharedPtr<LazyNode<TResult>> mapped_root(
+            new MapNode<T, TResult>(root, mapper));
+
+        return new LazySequence<TResult>(mapped_root);
     }
 
     static LazySequence<int>* Naturals()

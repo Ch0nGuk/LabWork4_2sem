@@ -134,6 +134,24 @@ namespace
         return value / 2.0;
     }
 
+    int DoubleMap(int value)
+    {
+        return value * 2;
+    }
+
+    double HalfMap(int value)
+    {
+        return value / 2.0;
+    }
+
+    int counted_map_calls = 0;
+
+    int CountedSquareMap(int value)
+    {
+        counted_map_calls++;
+        return value * value;
+    }
+
     bool IsPositive(int value)
     {
         return value > 0;
@@ -771,6 +789,89 @@ namespace
         }
     }
 
+    void TestLazySequenceMap()
+    {
+        {
+            int items[] = {1, 2, 3};
+            LazySequence<int> sequence(items, 3);
+            UniquePtr<LazySequence<int>> mapped(sequence.Map<int>(DoubleMap));
+
+            AssertTrue(mapped->GetOrdinalLength() == Ordinal::Finite(3), "Map finite length");
+            AssertEqual(mapped->Get(0), 2, "Map finite first");
+            AssertEqual(mapped->Get(1), 4, "Map finite second");
+            AssertEqual(mapped->Get(2), 6, "Map finite third");
+        }
+
+        {
+            counted_map_calls = 0;
+
+            int items[] = {1, 2, 3};
+            LazySequence<int> sequence(items, 3);
+            UniquePtr<LazySequence<int>> mapped(sequence.Map<int>(CountedSquareMap));
+
+            AssertEqual(counted_map_calls, 0, "Map must not call mapper during construction");
+            AssertEqual(mapped->Get(2), 9, "Map counted value");
+            AssertEqual(counted_map_calls, 1, "Map must call mapper on first Get");
+            AssertEqual(
+                mapped->GetMaterializedCount(),
+                static_cast<size_t>(1),
+                "Map materialized count after first Get");
+
+            AssertEqual(mapped->Get(2), 9, "Map cached value");
+            AssertEqual(counted_map_calls, 1, "Map must use cache on repeated Get");
+            AssertEqual(
+                mapped->GetMaterializedCount(),
+                static_cast<size_t>(1),
+                "Map materialized count after repeated Get");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> doubled(naturals->Map<int>(DoubleMap));
+
+            AssertTrue(doubled->GetOrdinalLength() == Ordinal::Omega(), "Map omega length");
+            AssertEqual(doubled->Get(10), 20, "Map omega finite index");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+            UniquePtr<Sequence<int>> with_100_base(naturals->Append(100));
+            LazySequence<int>* with_100 =
+                dynamic_cast<LazySequence<int>*>(with_100_base.get());
+            AssertTrue(with_100 != nullptr, "Map omega tail first append type");
+
+            UniquePtr<Sequence<int>> with_200_base(with_100->Append(200));
+            LazySequence<int>* with_200 =
+                dynamic_cast<LazySequence<int>*>(with_200_base.get());
+            AssertTrue(with_200 != nullptr, "Map omega tail second append type");
+
+            UniquePtr<LazySequence<int>> mapped(with_200->Map<int>(DoubleMap));
+
+            AssertTrue(
+                mapped->GetOrdinalLength() == Ordinal::OmegaPlus(2),
+                "Map omega+2 length");
+            AssertEqual(mapped->Get(Ordinal::Omega()), 200, "Map omega tail first");
+            AssertEqual(
+                mapped->Get(Ordinal::OmegaPlus(1)),
+                400,
+                "Map omega tail second");
+        }
+
+        {
+            int items[] = {1, 2, 3};
+            LazySequence<int> sequence(items, 3);
+            UniquePtr<LazySequence<double>> halves(sequence.Map<double>(HalfMap));
+
+            AssertEqual(halves->GetLength(), 3, "Map different result type length");
+            AssertTrue(halves->Get(1) == 1.0, "Map different result type value");
+
+            int (*null_mapper)(int) = nullptr;
+            AssertThrowsExact<std::invalid_argument>(
+                [&sequence, null_mapper]() { sequence.Map<int>(null_mapper); },
+                "Map null mapper must throw");
+        }
+    }
+
     void TestLazySequenceInsertAtFinite()
     {
         int items[] = {1, 2, 3};
@@ -938,6 +1039,7 @@ void RunAllTests()
     TestInsertNode();
     TestConcatNodeAndLazySequence();
     TestLazySequence();
+    TestLazySequenceMap();
     TestLazySequenceInsertAtFinite();
     TestLazySequenceInsertAtInfinite();
     TestLazySequenceInsertAtSharesCache();
