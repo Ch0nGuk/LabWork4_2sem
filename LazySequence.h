@@ -9,6 +9,7 @@
 
 #include "ConcatNode.h"
 #include "FiniteNode.h"
+#include "InsertNode.h"
 #include "LazyNode.h"
 #include "MutableArraySequence.h"
 #include "RecurrenceNode.h"
@@ -255,89 +256,14 @@ public:
         return new LazySequence<T>(SharedPtr<LazyNode<T>>(new ConcatNode<T>(root, right_root)));
     }
 
-    Sequence<T>* Slice(int start_index, int count) const override
+    Sequence<T>* Slice(int, int) const override
     {
-        EnsureFiniteLength("Slice is implemented only for finite LazySequence");
-
-        int length = GetLength();
-        if (start_index < 0 || count < 0 || start_index > length || count > length - start_index)
-        {
-            throw std::out_of_range("Index out of range");
-        }
-
-        int new_size = length - count;
-        if (new_size == 0)
-        {
-            return new LazySequence<T>();
-        }
-
-        const T& default_item = (start_index > 0) ? Get(0) : Get(start_index + count);
-        DynamicArray<T> data(new_size, default_item);
-        int target_index = 0;       
-
-        for (int index = 0; index < start_index; index++)
-        {
-            data.Set(target_index, Get(index));
-            target_index++;
-        }
-
-        for (int index = start_index + count; index < length; index++)
-        {
-            data.Set(target_index, Get(index));
-            target_index++;
-        }
-
-        return new LazySequence<T>(SharedPtr<LazyNode<T>>(new FiniteNode<T>(data)));
+        throw std::logic_error("Slice is not supported for LazySequence");
     }
 
-    Sequence<T>* Slice(int start_index, int count, const Sequence<T>& replacement) const override
+    Sequence<T>* Slice(int, int, const Sequence<T>&) const override
     {
-        EnsureFiniteLength("Slice replacement is implemented only for finite LazySequence");
-
-        int length = GetLength();
-        if (start_index < 0 || count < 0 || start_index > length || count > length - start_index)
-        {
-            throw std::out_of_range("Index out of range");
-        }
-
-        int replacement_size = replacement.GetLength();
-        if (replacement_size > std::numeric_limits<int>::max() - (length - count))
-        {
-            throw std::overflow_error("Slice result length overflow");
-        }
-
-        int new_size = length - count + replacement_size;
-        if (new_size == 0)
-        {
-            return new LazySequence<T>();
-        }
-
-        const T& default_item =
-            (start_index > 0)
-                ? Get(0)
-                : ((replacement_size > 0) ? replacement.Get(0) : Get(start_index + count));
-        DynamicArray<T> data(new_size, default_item);
-        int target_index = 0;
-
-        for (int index = 0; index < start_index; index++)
-        {
-            data.Set(target_index, Get(index));
-            target_index++;
-        }
-
-        for (int index = 0; index < replacement_size; index++)
-        {
-            data.Set(target_index, replacement.Get(index));
-            target_index++;
-        }
-
-        for (int index = start_index + count; index < length; index++)
-        {
-            data.Set(target_index, Get(index));
-            target_index++;
-        }
-
-        return new LazySequence<T>(SharedPtr<LazyNode<T>>(new FiniteNode<T>(data)));
+        throw std::logic_error("Slice is not supported for LazySequence");
     }
 
     IEnumerator<T>* GetEnumerator() const override
@@ -477,6 +403,27 @@ public:
             &initial);
     }
 
+    LazySequence<T>* InsertAt(const Ordinal& position, const T& item) const
+    {
+        SharedPtr<LazyNode<T>> inserted_root(new FiniteNode<T>(&item, 1));
+        return BuildInsertion(position, inserted_root);
+    }
+
+    LazySequence<T>* InsertAt(int position, const Sequence<T>& inserted) const
+    {
+        if (position < 0)
+        {
+            throw std::out_of_range("Index out of range");
+        }
+
+        return InsertAt(Ordinal::Finite(static_cast<size_t>(position)), inserted);
+    }
+
+    LazySequence<T>* InsertAt(const Ordinal& position, const Sequence<T>& inserted) const
+    {
+        return BuildInsertion(position, BuildInsertedRoot(inserted));
+    }
+
 private:
     SharedPtr<LazyNode<T>> root;
 
@@ -496,6 +443,40 @@ private:
         }
     }
 
+    LazySequence<T>* BuildInsertion(
+        const Ordinal& position,
+        const SharedPtr<LazyNode<T>>& inserted_root) const
+    {
+        if (inserted_root.IsNull())
+        {
+            throw std::invalid_argument("Inserted root is null");
+        }
+
+        if (position > root->GetOrdinalLength())
+        {
+            throw std::out_of_range("Insert position is out of range");
+        }
+
+        if (inserted_root->GetOrdinalLength().IsZero())
+        {
+            return new LazySequence<T>(root);
+        }
+
+        SharedPtr<LazyNode<T>> result_root(new InsertNode<T>(root, inserted_root, position));
+        return new LazySequence<T>(result_root);
+    }
+
+    SharedPtr<LazyNode<T>> BuildInsertedRoot(const Sequence<T>& inserted) const
+    {
+        const LazySequence<T>* inserted_lazy = dynamic_cast<const LazySequence<T>*>(&inserted);
+        if (inserted_lazy != nullptr)
+        {
+            return inserted_lazy->root;
+        }
+
+        return SharedPtr<LazyNode<T>>(new FiniteNode<T>(&inserted));
+    }
+
 
 protected:
     Sequence<T>* AppendInternal(const T& item) override
@@ -512,33 +493,13 @@ protected:
 
     Sequence<T>* InsertAtInternal(int index, const T& item) override
     {
-        EnsureFiniteLength("InsertAt is implemented only for finite LazySequence");
-
-        int length = GetLength();
-        if (index < 0 || index > length)
+        if (index < 0)
         {
             throw std::out_of_range("Index out of range");
         }
 
-        if (length == std::numeric_limits<int>::max())
-        {
-            throw std::overflow_error("InsertAt result length overflow");
-        }
-
-        DynamicArray<T> data(length + 1, item);
-        for (int source_index = 0; source_index < index; source_index++)
-        {
-            data.Set(source_index, Get(source_index));
-        }
-
-        data.Set(index, item);
-
-        for (int source_index = index; source_index < length; source_index++)
-        {
-            data.Set(source_index + 1, Get(source_index));
-        }
-
-        return new LazySequence<T>(SharedPtr<LazyNode<T>>(new FiniteNode<T>(data)));
+        SharedPtr<LazyNode<T>> inserted_root(new FiniteNode<T>(&item, 1));
+        return BuildInsertion(Ordinal::Finite(static_cast<size_t>(index)), inserted_root);
     }
 };
 

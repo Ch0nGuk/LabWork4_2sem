@@ -17,6 +17,7 @@
 #include "FiniteNode.h"
 #include "RecurrenceNode.h"
 #include "ConcatNode.h"
+#include "InsertNode.h"
 #include "LazySequence.h"
 #include "sequence_factory.h"
 
@@ -59,6 +60,32 @@ namespace
         }
 
         if (!did_throw)
+        {
+            throw std::runtime_error(message);
+        }
+    }
+
+    template <typename Exception, typename Action>
+    void AssertThrowsExact(Action action, const std::string& message)
+    {
+        bool did_throw_expected = false;
+
+        try
+        {
+            action();
+        }
+        catch (const Exception&)
+        {
+            did_throw_expected = true;
+        }
+        catch (const std::exception& error)
+        {
+            std::ostringstream error_stream;
+            error_stream << message << ": wrong exception type: " << error.what();
+            throw std::runtime_error(error_stream.str());
+        }
+
+        if (!did_throw_expected)
         {
             throw std::runtime_error(message);
         }
@@ -536,6 +563,28 @@ namespace
         AssertEqual(Ordinal::OmegaTimesPlus(2, 7).ToString(), std::string("omega*2+7"), "Ordinal ToString");
     }
 
+    void TestOrdinalRemovePrefix()
+    {
+        AssertTrue(
+            Ordinal::Finite(10).RemovePrefix(Ordinal::Finite(3)) == Ordinal::Finite(7),
+            "RemovePrefix finite from finite");
+        AssertTrue(
+            Ordinal::Omega().RemovePrefix(Ordinal::Finite(3)) == Ordinal::Omega(),
+            "RemovePrefix finite prefix from omega");
+        AssertTrue(
+            Ordinal::OmegaPlus(5).RemovePrefix(Ordinal::OmegaPlus(2)) == Ordinal::Finite(3),
+            "RemovePrefix omega+n from omega+m");
+        AssertTrue(
+            Ordinal::OmegaTimesPlus(2, 5).RemovePrefix(Ordinal::OmegaPlus(7)) == Ordinal::OmegaPlus(5),
+            "RemovePrefix omega+n from omega*2+m");
+        AssertTrue(
+            Ordinal::OmegaPlus(3).RemovePrefix(Ordinal::OmegaPlus(3)) == Ordinal::Zero(),
+            "RemovePrefix equal prefix");
+        AssertThrowsExact<std::out_of_range>(
+            []() { Ordinal::Finite(3).RemovePrefix(Ordinal::Finite(4)); },
+            "RemovePrefix prefix greater than total must throw");
+    }
+
     void TestFiniteNode()
     {
         FiniteNode<int> empty;
@@ -585,6 +634,27 @@ namespace
         UniquePtr<LazySequence<int>> factorials(LazySequence<int>::Factorials());
         AssertEqual(fibonacci->Get(10), 55, "LazySequence Fibonacci");
         AssertEqual(factorials->Get(5), 120, "LazySequence Factorials");
+    }
+
+    void TestInsertNode()
+    {
+        int source_items[] = {1, 2, 3, 4};
+        int inserted_items[] = {9, 8};
+
+        SharedPtr<LazyNode<int>> source(new FiniteNode<int>(source_items, 4));
+        SharedPtr<LazyNode<int>> inserted(new FiniteNode<int>(inserted_items, 2));
+        InsertNode<int> node(source, inserted, Ordinal::Finite(2));
+
+        AssertTrue(node.GetOrdinalLength() == Ordinal::Finite(6), "InsertNode finite result length");
+        AssertEqual(node.Get(Ordinal::Finite(0)), 1, "InsertNode prefix item");
+        AssertEqual(node.Get(Ordinal::Finite(2)), 9, "InsertNode inserted first item");
+        AssertEqual(node.Get(Ordinal::Finite(3)), 8, "InsertNode inserted second item");
+        AssertEqual(node.Get(Ordinal::Finite(4)), 3, "InsertNode suffix item");
+        AssertThrows([&node]() { node.Get(Ordinal::Finite(6)); }, "InsertNode out of range must throw");
+
+        AssertThrowsExact<std::out_of_range>(
+            [&source, &inserted]() { InsertNode<int> invalid(source, inserted, Ordinal::Finite(5)); },
+            "InsertNode invalid position must throw");
     }
 
     void TestConcatNodeAndLazySequence()
@@ -691,7 +761,6 @@ namespace
         int expected_subsequence[] = {0, 1, 2};
         AssertSequenceContent(subsequence_base.get(), expected_subsequence, 3, "Lazy GetSubsequence finite window from omega");
 
-        AssertThrows([prepended]() { prepended->InsertAt(1, 5); }, "InsertAt for omega must throw");
         AssertThrows([prepended]() { prepended->Where(IsEven); }, "Where for omega must throw");
 
         UniquePtr<IEnumerator<int>> enumerator(appended->GetEnumerator());
@@ -700,6 +769,154 @@ namespace
             AssertTrue(enumerator->MoveNext(), "Lazy enumerator must move on omega finite prefix");
             AssertEqual(enumerator->Current(), expected, "Lazy enumerator finite index order");
         }
+    }
+
+    void TestLazySequenceInsertAtFinite()
+    {
+        int items[] = {1, 2, 3};
+        LazySequence<int> finite(items, 3);
+
+        UniquePtr<Sequence<int>> start_base(finite.InsertAt(0, 10));
+        int expected_start[] = {10, 1, 2, 3};
+        AssertSequenceContent(start_base.get(), expected_start, 4, "Lazy InsertAt item at start");
+
+        UniquePtr<Sequence<int>> middle_base(finite.InsertAt(1, 20));
+        int expected_middle[] = {1, 20, 2, 3};
+        AssertSequenceContent(middle_base.get(), expected_middle, 4, "Lazy InsertAt item in middle");
+
+        UniquePtr<Sequence<int>> end_base(finite.InsertAt(3, 30));
+        int expected_end[] = {1, 2, 3, 30};
+        AssertSequenceContent(end_base.get(), expected_end, 4, "Lazy InsertAt item at end");
+
+        int inserted_items[] = {7, 8};
+        MutableArraySequence<int> inserted_sequence(inserted_items, 2);
+        UniquePtr<LazySequence<int>> sequence_insert(finite.InsertAt(1, inserted_sequence));
+        int expected_sequence_insert[] = {1, 7, 8, 2, 3};
+        AssertSequenceContent(sequence_insert.get(), expected_sequence_insert, 5, "Lazy InsertAt finite Sequence");
+
+        inserted_sequence.Prepend(99);
+        AssertSequenceContent(sequence_insert.get(), expected_sequence_insert, 5, "Lazy InsertAt must copy mutable Sequence");
+
+        int expected_original[] = {1, 2, 3};
+        AssertSequenceContent(&finite, expected_original, 3, "Lazy InsertAt must preserve source");
+
+        LazySequence<int> empty_inserted;
+        UniquePtr<LazySequence<int>> empty_result(finite.InsertAt(1, empty_inserted));
+        AssertSequenceContent(empty_result.get(), expected_original, 3, "Lazy InsertAt empty Sequence");
+
+        int self_items[] = {1, 2};
+        LazySequence<int> self_source(self_items, 2);
+        UniquePtr<LazySequence<int>> self_result(self_source.InsertAt(1, self_source));
+        int expected_self[] = {1, 1, 2, 2};
+        AssertSequenceContent(self_result.get(), expected_self, 4, "Lazy InsertAt self finite");
+
+        LazySequence<int> empty_source;
+        UniquePtr<LazySequence<int>> inserted_into_empty(empty_source.InsertAt(Ordinal::Zero(), 42));
+        AssertEqual(inserted_into_empty->GetLength(), 1, "Lazy InsertAt empty source length");
+        AssertEqual(inserted_into_empty->Get(0), 42, "Lazy InsertAt empty source item");
+        AssertThrows([&empty_source]() { empty_source.InsertAt(Ordinal::Finite(1), 42); }, "Lazy InsertAt empty source invalid ordinal");
+        AssertThrows([&finite]() { finite.InsertAt(-1, 10); }, "Lazy InsertAt negative int position must throw");
+        AssertThrows([&finite]() { finite.InsertAt(Ordinal::Finite(4), 10); }, "Lazy InsertAt ordinal position out of range");
+        AssertThrows([&middle_base]() { middle_base->Get(4); }, "Lazy InsertAt Get past result must throw");
+    }
+
+    void TestLazySequenceInsertAtInfinite()
+    {
+        UniquePtr<LazySequence<int>> naturals_for_item(LazySequence<int>::Naturals());
+        UniquePtr<Sequence<int>> item_insert_base(naturals_for_item->InsertAt(3, 100));
+        LazySequence<int>* item_insert = dynamic_cast<LazySequence<int>*>(item_insert_base.get());
+        AssertTrue(item_insert != nullptr, "Lazy InsertAt item in omega must return LazySequence");
+        AssertTrue(item_insert->GetOrdinalLength() == Ordinal::Omega(), "Lazy InsertAt finite item in omega length");
+        AssertEqual(item_insert->Get(3), 100, "Lazy InsertAt item in omega inserted item");
+        AssertEqual(item_insert->Get(4), 3, "Lazy InsertAt item in omega suffix first");
+        AssertEqual(item_insert->Get(100), 99, "Lazy InsertAt item in omega far suffix");
+
+        int finite_items[] = {50, 51};
+        LazySequence<int> finite_inserted(finite_items, 2);
+        UniquePtr<LazySequence<int>> naturals_for_sequence(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> sequence_insert(naturals_for_sequence->InsertAt(3, finite_inserted));
+        AssertTrue(sequence_insert->GetOrdinalLength() == Ordinal::Omega(), "Lazy InsertAt finite Sequence in omega length");
+        AssertEqual(sequence_insert->Get(3), 50, "Lazy InsertAt finite Sequence first inserted");
+        AssertEqual(sequence_insert->Get(4), 51, "Lazy InsertAt finite Sequence second inserted");
+        AssertEqual(sequence_insert->Get(5), 3, "Lazy InsertAt finite Sequence suffix first");
+
+        UniquePtr<LazySequence<int>> source_naturals(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> inserted_naturals(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> omega_insert(source_naturals->InsertAt(3, *inserted_naturals));
+        AssertTrue(omega_insert->GetOrdinalLength() == Ordinal::OmegaTimes(2), "Lazy InsertAt omega into omega length");
+        AssertEqual(omega_insert->Get(3), 0, "Lazy InsertAt omega inserted first");
+        AssertEqual(omega_insert->Get(Ordinal::Omega()), 3, "Lazy InsertAt omega suffix first");
+        AssertEqual(omega_insert->Get(Ordinal::OmegaPlus(5)), 8, "Lazy InsertAt omega suffix offset");
+
+        UniquePtr<LazySequence<int>> tail_source_base(LazySequence<int>::Naturals());
+        UniquePtr<Sequence<int>> tail_one_base(tail_source_base->Append(100));
+        LazySequence<int>* tail_one = dynamic_cast<LazySequence<int>*>(tail_one_base.get());
+        UniquePtr<Sequence<int>> tail_two_base(tail_one->Append(200));
+        LazySequence<int>* tail_two = dynamic_cast<LazySequence<int>*>(tail_two_base.get());
+
+        UniquePtr<LazySequence<int>> omega_for_position(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> insert_at_omega(tail_two->InsertAt(Ordinal::Omega(), *omega_for_position));
+        AssertTrue(insert_at_omega->GetOrdinalLength() == Ordinal::OmegaTimesPlus(2, 2), "Lazy InsertAt position omega length");
+        AssertEqual(insert_at_omega->Get(Ordinal::Omega()), 0, "Lazy InsertAt position omega inserted first");
+        AssertEqual(insert_at_omega->Get(Ordinal::OmegaPlus(5)), 5, "Lazy InsertAt position omega inserted offset");
+        AssertEqual(insert_at_omega->Get(Ordinal::OmegaTimes(2)), 100, "Lazy InsertAt position omega suffix first");
+        AssertEqual(insert_at_omega->Get(Ordinal::OmegaTimesPlus(2, 1)), 200, "Lazy InsertAt position omega suffix second");
+
+        UniquePtr<LazySequence<int>> item_at_omega_plus_one(tail_two->InsertAt(Ordinal::OmegaPlus(1), 999));
+        AssertTrue(item_at_omega_plus_one->GetOrdinalLength() == Ordinal::OmegaPlus(3), "Lazy InsertAt omega+n item length");
+        AssertEqual(item_at_omega_plus_one->Get(Ordinal::Omega()), 100, "Lazy InsertAt omega+n prefix tail");
+        AssertEqual(item_at_omega_plus_one->Get(Ordinal::OmegaPlus(1)), 999, "Lazy InsertAt omega+n inserted item");
+        AssertEqual(item_at_omega_plus_one->Get(Ordinal::OmegaPlus(2)), 200, "Lazy InsertAt omega+n suffix item");
+
+        UniquePtr<LazySequence<int>> append_by_insert_source(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> append_by_insert(append_by_insert_source->InsertAt(Ordinal::Omega(), 777));
+        AssertTrue(append_by_insert->GetOrdinalLength() == Ordinal::OmegaPlus(1), "Lazy InsertAt at omega end length");
+        AssertEqual(append_by_insert->Get(Ordinal::Omega()), 777, "Lazy InsertAt at omega end item");
+
+        UniquePtr<LazySequence<int>> self_naturals(LazySequence<int>::Naturals());
+        UniquePtr<LazySequence<int>> self_insert(self_naturals->InsertAt(3, *self_naturals));
+        AssertTrue(self_insert->GetOrdinalLength() == Ordinal::OmegaTimes(2), "Lazy InsertAt self omega length");
+        AssertEqual(self_insert->Get(3), 0, "Lazy InsertAt self omega inserted first");
+        AssertEqual(self_insert->Get(Ordinal::Omega()), 3, "Lazy InsertAt self omega suffix first");
+
+        AssertThrowsExact<std::out_of_range>(
+            [&item_at_omega_plus_one]() { item_at_omega_plus_one->Get(Ordinal::OmegaPlus(3)); },
+            "Lazy InsertAt Get past transfinite result must throw");
+    }
+
+    void TestLazySequenceInsertAtSharesCache()
+    {
+        UniquePtr<LazySequence<int>> source(LazySequence<int>::Naturals());
+        size_t before = source->GetMaterializedCount();
+
+        UniquePtr<Sequence<int>> inserted_base(source->InsertAt(3, 100));
+        LazySequence<int>* inserted = dynamic_cast<LazySequence<int>*>(inserted_base.get());
+        AssertEqual(inserted->Get(100), 99, "Lazy InsertAt shared cache result value");
+
+        size_t after = source->GetMaterializedCount();
+        AssertTrue(after > before, "Lazy InsertAt must share RecurrenceNode cache with source");
+    }
+
+    void TestLazySequenceSliceStubs()
+    {
+        int items[] = {1, 2, 3};
+        LazySequence<int> finite(items, 3);
+        LazySequence<int> replacement(items, 3);
+
+        AssertThrowsExact<std::logic_error>(
+            [&finite]() { finite.Slice(0, 1); },
+            "Lazy Slice finite must throw logic_error");
+        AssertThrowsExact<std::logic_error>(
+            [&finite, &replacement]() { finite.Slice(0, 1, replacement); },
+            "Lazy Slice replacement finite must throw logic_error");
+
+        UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+        AssertThrowsExact<std::logic_error>(
+            [&naturals]() { naturals->Slice(0, 1); },
+            "Lazy Slice omega must throw logic_error");
+        AssertThrowsExact<std::logic_error>(
+            [&naturals, &replacement]() { naturals->Slice(0, 1, replacement); },
+            "Lazy Slice replacement omega must throw logic_error");
     }
 }
 
@@ -715,10 +932,16 @@ void RunAllTests()
     TestMapZipUnzip();
     TestSharedPtr();
     TestCardinalOrdinal();
+    TestOrdinalRemovePrefix();
     TestFiniteNode();
     TestRecurrenceNode();
+    TestInsertNode();
     TestConcatNodeAndLazySequence();
     TestLazySequence();
+    TestLazySequenceInsertAtFinite();
+    TestLazySequenceInsertAtInfinite();
+    TestLazySequenceInsertAtSharesCache();
+    TestLazySequenceSliceStubs();
 
     std::cout << "All tests passed." << std::endl;
 }

@@ -107,6 +107,21 @@ public:
         return Ordinal(CheckedAdd(omega_coeff, rhs.omega_coeff), rhs.finite_part);
     }
 
+    Ordinal RemovePrefix(const Ordinal& prefix) const
+    {
+        if (prefix > *this)
+        {
+            throw std::out_of_range("Ordinal prefix is greater than total");
+        }
+
+        if (prefix.omega_coeff == omega_coeff)
+        {
+            return Ordinal::Finite(finite_part - prefix.finite_part);
+        }
+
+        return Ordinal::OmegaTimesPlus(omega_coeff - prefix.omega_coeff, finite_part);
+    }
+
     std::optional<Ordinal> Predecessor() const
     {
         if (finite_part == 0)

@@ -8,43 +8,6 @@
 #include "LazyNode.h"
 #include "SharedPtr.h"
 
-
-
-inline Ordinal GetRightResidualIndex(const Ordinal& left_length, const Ordinal& global_index)
-{
-    size_t left_omega = left_length.GetOmegaCoeff();
-    size_t left_finite = left_length.GetFinitePart();
-    size_t global_omega = global_index.GetOmegaCoeff();
-    size_t global_finite = global_index.GetFinitePart();
-
-    if (left_omega == 0)
-    {
-        if (global_omega == 0)
-        {
-            if (global_finite < left_finite)
-            {
-                throw std::out_of_range("Global index is before right side");
-            }
-
-            return Ordinal::Finite(global_finite - left_finite);
-        }
-
-        return global_index;
-    }
-
-    if (global_omega == left_omega && global_finite >= left_finite)
-    {
-        return Ordinal::Finite(global_finite - left_finite);
-    }
-
-    if (global_omega > left_omega)
-    {
-        return Ordinal::OmegaTimesPlus(global_omega - left_omega, global_finite);
-    }
-
-    throw std::out_of_range("Global index is before right side");
-}
-
 template <class T>
 class ConcatNode : public LazyNode<T>
 {
@@ -68,7 +31,7 @@ public:
             return left->Get(index);
         }
 
-        Ordinal residual = GetRightResidualIndex(left_length, index);
+        Ordinal residual = index.RemovePrefix(left_length);
         if (residual >= right->GetOrdinalLength())
         {
             throw std::out_of_range("Index out of range");
@@ -106,7 +69,7 @@ public:
     {
         size_t left_count = left->GetMaterializedCount();
         size_t right_count = right->GetMaterializedCount();
-        if (right_count + left_count > std::numeric_limits<size_t>::max())
+        if (right_count > std::numeric_limits<size_t>::max() - left_count)
         {
             throw std::overflow_error("Materialized count overflow");
         }
