@@ -42,7 +42,7 @@ public:
         }
 
         TResult mapped_value = mapper(source->Get(index));
-        return cache.Store(index, mapped_value);
+        return cache.Insert(index, mapped_value);
     }
 
     Ordinal GetOrdinalLength() const override

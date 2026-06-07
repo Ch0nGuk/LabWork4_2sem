@@ -33,7 +33,7 @@ public:
         return nullptr;
     }
 
-    const T& Store(const Ordinal& index, const T& value)
+    const T& Insert(const Ordinal& index, const T& value)
     {
         if (count == std::numeric_limits<size_t>::max())
         {

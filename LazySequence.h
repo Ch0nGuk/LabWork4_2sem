@@ -5,17 +5,22 @@
 #include <functional>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 #include "ConcatNode.h"
 #include "FiniteNode.h"
 #include "InsertNode.h"
+#include "InterleaveNode.h"
 #include "LazyNode.h"
 #include "MapNode.h"
 #include "MutableArraySequence.h"
+#include "PairProjectionNode.h"
 #include "RecurrenceNode.h"
 #include "Sequence.h"
 #include "SharedPtr.h"
+#include "UniquePtr.h"
+#include "ZipNode.h"
 
 template <class T>
 class LazySequence : public Sequence<T>
@@ -79,6 +84,8 @@ private:
 
 public:
     using Sequence<T>::Map;
+    using Sequence<T>::Unzip;
+    using Sequence<T>::Zip;
 
     LazySequence()
         : root(SharedPtr<LazyNode<T>>(new FiniteNode<T>())) {}
@@ -342,6 +349,141 @@ public:
         return new LazySequence<TResult>(mapped_root);
     }
 
+    template <class TOther>
+    LazySequence<std::pair<T, TOther>>* Zip(
+        const Sequence<TOther>& other) const
+    {
+        const LazySequence<TOther>* other_lazy =
+            dynamic_cast<const LazySequence<TOther>*>(&other);
+
+        SharedPtr<LazyNode<TOther>> right_root =
+            (other_lazy != nullptr)
+                ? other_lazy->root
+                : SharedPtr<LazyNode<TOther>>(
+                    new FiniteNode<TOther>(&other));
+
+        typedef std::pair<T, TOther> Result;
+
+        SharedPtr<LazyNode<Result>> zipped_root(
+            new ZipNode<T, TOther>(root, right_root));
+
+        return new LazySequence<Result>(zipped_root);
+    }
+
+    template <class TFirst, class TSecond>
+    std::pair<LazySequence<TFirst>*, LazySequence<TSecond>*> Unzip() const
+    {
+        static_assert(
+            std::is_same<T, std::pair<TFirst, TSecond>>::value,
+            "Unzip requires LazySequence<std::pair<TFirst, TSecond>>");
+
+        SharedPtr<LazyNode<TFirst>> first_root(
+            new FirstProjectionNode<TFirst, TSecond>(root));
+
+        SharedPtr<LazyNode<TSecond>> second_root(
+            new SecondProjectionNode<TFirst, TSecond>(root));
+
+        UniquePtr<LazySequence<TFirst>> first(
+            new LazySequence<TFirst>(first_root));
+
+        UniquePtr<LazySequence<TSecond>> second(
+            new LazySequence<TSecond>(second_root));
+
+        return std::make_pair(first.release(), second.release());
+    }
+
+    static LazySequence<T>* Interleave(
+        const Sequence<T>* const* sequences,
+        int count)
+    {
+        if (count <= 0)
+        {
+            throw std::invalid_argument("Interleave source count is zero");
+        }
+
+        if (sequences == nullptr)
+        {
+            throw std::invalid_argument("Interleave source array is null");
+        }
+
+        if (sequences[0] == nullptr)
+        {
+            throw std::invalid_argument("Interleave source is null");
+        }
+
+        SharedPtr<LazyNode<T>> first_root =
+            BuildRootFromSequence(*sequences[0]);
+
+        DynamicArray<SharedPtr<LazyNode<T>>> roots(count, first_root);
+        roots.Set(0, first_root);
+
+        for (int index = 1; index < count; index++)
+        {
+            if (sequences[index] == nullptr)
+            {
+                throw std::invalid_argument("Interleave source is null");
+            }
+
+            roots.Set(index, BuildRootFromSequence(*sequences[index]));
+        }
+
+        SharedPtr<LazyNode<T>> result_root(
+            new InterleaveNode<T>(roots));
+
+        return new LazySequence<T>(result_root);
+    }
+
+    LazySequence<T>* InterleaveWith(
+        const Sequence<T>* const* others,
+        int other_count) const
+    {
+        if (other_count < 0)
+        {
+            throw std::invalid_argument("Interleave source count is negative");
+        }
+
+        if (other_count > 0 && others == nullptr)
+        {
+            throw std::invalid_argument("Interleave source array is null");
+        }
+
+        if (other_count == std::numeric_limits<int>::max())
+        {
+            throw std::overflow_error("Interleave source count overflow");
+        }
+
+        int total_count = other_count + 1;
+
+        const Sequence<T>** all_sources =
+            new const Sequence<T>*[total_count];
+
+        try
+        {
+            all_sources[0] = this;
+
+            for (int index = 0; index < other_count; index++)
+            {
+                if (others[index] == nullptr)
+                {
+                    throw std::invalid_argument("Interleave source is null");
+                }
+
+                all_sources[index + 1] = others[index];
+            }
+
+            LazySequence<T>* result =
+                LazySequence<T>::Interleave(all_sources, total_count);
+
+            delete[] all_sources;
+            return result;
+        }
+        catch (...)
+        {
+            delete[] all_sources;
+            throw;
+        }
+    }
+
     static LazySequence<int>* Naturals()
     {
         int initial_items[] = {0};
@@ -446,6 +588,21 @@ public:
 
 private:
     SharedPtr<LazyNode<T>> root;
+
+    static SharedPtr<LazyNode<T>> BuildRootFromSequence(
+        const Sequence<T>& sequence)
+    {
+        const LazySequence<T>* lazy =
+            dynamic_cast<const LazySequence<T>*>(&sequence);
+
+        if (lazy != nullptr)
+        {
+            return lazy->root;
+        }
+
+        return SharedPtr<LazyNode<T>>(
+            new FiniteNode<T>(&sequence));
+    }
 
     explicit LazySequence(const SharedPtr<LazyNode<T>>& root_node) : root(root_node)
     {

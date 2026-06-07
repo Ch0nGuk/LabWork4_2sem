@@ -872,6 +872,459 @@ namespace
         }
     }
 
+    void TestLazySequenceZip()
+    {
+        {
+            int left_items[] = {1, 2, 3};
+            int right_items[] = {10, 20};
+
+            LazySequence<int> left(left_items, 3);
+            LazySequence<int> right(right_items, 2);
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(left.Zip(right));
+
+            AssertTrue(
+                zipped->GetOrdinalLength() == Ordinal::Finite(2),
+                "Zip finite length");
+            AssertEqual(zipped->Get(0).first, 1, "Zip finite first left");
+            AssertEqual(zipped->Get(0).second, 10, "Zip finite first right");
+            AssertEqual(zipped->Get(1).first, 2, "Zip finite second left");
+            AssertEqual(zipped->Get(1).second, 20, "Zip finite second right");
+
+            AssertThrowsExact<std::out_of_range>(
+                [&zipped]() { zipped->Get(2); },
+                "Zip finite out of range");
+        }
+
+        {
+            int finite_items[] = {5, 6, 7};
+            LazySequence<int> finite(finite_items, 3);
+            UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                finite.Zip(*naturals));
+
+            AssertTrue(
+                zipped->GetOrdinalLength() == Ordinal::Finite(3),
+                "Zip finite omega length");
+            AssertEqual(zipped->Get(2).first, 7, "Zip finite omega left");
+            AssertEqual(zipped->Get(2).second, 2, "Zip finite omega right");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> left(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> right(LazySequence<int>::Naturals());
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                left->Zip(*right));
+
+            AssertTrue(
+                zipped->GetOrdinalLength() == Ordinal::Omega(),
+                "Zip omega omega length");
+            AssertEqual(zipped->Get(10).first, 10, "Zip omega left");
+            AssertEqual(zipped->Get(10).second, 10, "Zip omega right");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> naturals_a(LazySequence<int>::Naturals());
+            UniquePtr<Sequence<int>> a1_base(naturals_a->Append(100));
+            LazySequence<int>* a1 =
+                dynamic_cast<LazySequence<int>*>(a1_base.get());
+            AssertTrue(a1 != nullptr, "Zip omega+1 left type");
+
+            UniquePtr<Sequence<int>> a2_base(a1->Append(200));
+            LazySequence<int>* a2 =
+                dynamic_cast<LazySequence<int>*>(a2_base.get());
+            AssertTrue(a2 != nullptr, "Zip omega+2 left type");
+
+            UniquePtr<LazySequence<int>> naturals_b(LazySequence<int>::Naturals());
+            UniquePtr<Sequence<int>> b1_base(naturals_b->Append(999));
+            LazySequence<int>* b1 =
+                dynamic_cast<LazySequence<int>*>(b1_base.get());
+            AssertTrue(b1 != nullptr, "Zip omega+1 right type");
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                a2->Zip(*b1));
+
+            AssertTrue(
+                zipped->GetOrdinalLength() == Ordinal::OmegaPlus(1),
+                "Zip omega tails length");
+            AssertEqual(
+                zipped->Get(Ordinal::Omega()).first,
+                100,
+                "Zip omega tail left");
+            AssertEqual(
+                zipped->Get(Ordinal::Omega()).second,
+                999,
+                "Zip omega tail right");
+
+            AssertThrowsExact<std::out_of_range>(
+                [&zipped]() { zipped->Get(Ordinal::OmegaPlus(1)); },
+                "Zip past min length must throw");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> left(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> right(LazySequence<int>::Naturals());
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                left->Zip(*right));
+
+            AssertEqual(
+                zipped->GetMaterializedCount(),
+                static_cast<size_t>(0),
+                "Zip cache initially empty");
+
+            zipped->Get(5);
+
+            AssertEqual(
+                zipped->GetMaterializedCount(),
+                static_cast<size_t>(1),
+                "Zip first Get materializes one pair");
+
+            zipped->Get(5);
+
+            AssertEqual(
+                zipped->GetMaterializedCount(),
+                static_cast<size_t>(1),
+                "Zip repeated Get uses cache");
+        }
+
+        {
+            int left_items[] = {1, 2, 3};
+            int right_items[] = {10, 20, 30};
+
+            LazySequence<int> left(left_items, 3);
+            MutableArraySequence<int> right(right_items, 3);
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                left.Zip(right));
+
+            right.Prepend(999);
+
+            AssertEqual(
+                zipped->Get(0).second,
+                10,
+                "Zip must copy non-lazy mutable Sequence");
+        }
+    }
+
+    void TestLazySequenceUnzip()
+    {
+        {
+            std::pair<int, int> items[] = {
+                std::make_pair(1, 10),
+                std::make_pair(2, 20),
+                std::make_pair(3, 30)
+            };
+
+            LazySequence<std::pair<int, int>> pairs(items, 3);
+
+            std::pair<LazySequence<int>*, LazySequence<int>*> raw_parts =
+                pairs.Unzip<int, int>();
+
+            UniquePtr<LazySequence<int>> first(raw_parts.first);
+            UniquePtr<LazySequence<int>> second(raw_parts.second);
+
+            AssertTrue(
+                first->GetOrdinalLength() == Ordinal::Finite(3),
+                "Unzip first length");
+            AssertTrue(
+                second->GetOrdinalLength() == Ordinal::Finite(3),
+                "Unzip second length");
+            AssertEqual(first->Get(0), 1, "Unzip first[0]");
+            AssertEqual(first->Get(2), 3, "Unzip first[2]");
+            AssertEqual(second->Get(0), 10, "Unzip second[0]");
+            AssertEqual(second->Get(2), 30, "Unzip second[2]");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> doubled(
+                naturals->Map<int>(DoubleMap));
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                naturals->Zip(*doubled));
+
+            std::pair<LazySequence<int>*, LazySequence<int>*> raw_parts =
+                zipped->Unzip<int, int>();
+
+            UniquePtr<LazySequence<int>> first(raw_parts.first);
+            UniquePtr<LazySequence<int>> second(raw_parts.second);
+
+            first->Get(5);
+            size_t after_first = zipped->GetMaterializedCount();
+
+            second->Get(5);
+            size_t after_second = zipped->GetMaterializedCount();
+
+            AssertEqual(
+                after_second,
+                after_first,
+                "Unzip projections must share pair source cache");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> naturals(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> doubled(
+                naturals->Map<int>(DoubleMap));
+
+            UniquePtr<LazySequence<std::pair<int, int>>> zipped(
+                naturals->Zip(*doubled));
+
+            std::pair<LazySequence<int>*, LazySequence<int>*> raw_parts =
+                zipped->Unzip<int, int>();
+
+            UniquePtr<LazySequence<int>> first(raw_parts.first);
+            UniquePtr<LazySequence<int>> second(raw_parts.second);
+
+            zipped.reset();
+
+            AssertEqual(first->Get(4), 4, "Unzip first survives source wrapper");
+            AssertEqual(second->Get(4), 8, "Unzip second survives source wrapper");
+        }
+    }
+
+    void TestLazySequenceInterleave()
+    {
+        {
+            int a_items[] = {1, 2, 3};
+            int b_items[] = {10, 20, 30};
+            int c_items[] = {100, 200, 300};
+
+            LazySequence<int> a(a_items, 3);
+            LazySequence<int> b(b_items, 3);
+            LazySequence<int> c(c_items, 3);
+
+            const Sequence<int>* sources[] = {&a, &b, &c};
+
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 3));
+
+            AssertTrue(
+                result->GetOrdinalLength() == Ordinal::Finite(9),
+                "Interleave finite length");
+
+            int expected[] = {1, 10, 100, 2, 20, 200, 3, 30, 300};
+
+            for (int index = 0; index < 9; index++)
+            {
+                AssertEqual(
+                    result->Get(index),
+                    expected[index],
+                    "Interleave finite item");
+            }
+        }
+
+        {
+            int a_items[] = {1, 2, 3, 4};
+            int b_items[] = {10, 20};
+            int c_items[] = {100, 200, 300};
+
+            LazySequence<int> a(a_items, 4);
+            LazySequence<int> b(b_items, 2);
+            LazySequence<int> c(c_items, 3);
+
+            const Sequence<int>* sources[] = {&a, &b, &c};
+
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 3));
+
+            AssertTrue(
+                result->GetOrdinalLength() == Ordinal::Finite(6),
+                "Interleave min finite length");
+
+            int expected[] = {1, 10, 100, 2, 20, 200};
+
+            for (int index = 0; index < 6; index++)
+            {
+                AssertEqual(
+                    result->Get(index),
+                    expected[index],
+                    "Interleave min finite item");
+            }
+
+            AssertThrowsExact<std::out_of_range>(
+                [&result]() { result->Get(6); },
+                "Interleave past finite result must throw");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> a(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> b(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> c(LazySequence<int>::Naturals());
+
+            const Sequence<int>* sources[] = {a.get(), b.get(), c.get()};
+
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 3));
+
+            AssertTrue(
+                result->GetOrdinalLength() == Ordinal::Omega(),
+                "Interleave omega length");
+            AssertEqual(result->Get(0), 0, "Interleave omega item 0");
+            AssertEqual(result->Get(1), 0, "Interleave omega item 1");
+            AssertEqual(result->Get(2), 0, "Interleave omega item 2");
+            AssertEqual(result->Get(3), 1, "Interleave omega item 3");
+            AssertEqual(result->Get(4), 1, "Interleave omega item 4");
+            AssertEqual(result->Get(5), 1, "Interleave omega item 5");
+            AssertEqual(result->Get(300), 100, "Interleave omega far item");
+
+            size_t expected_materialized =
+                a->GetMaterializedCount() +
+                b->GetMaterializedCount() +
+                c->GetMaterializedCount();
+            AssertEqual(
+                result->GetMaterializedCount(),
+                expected_materialized,
+                "Interleave materialized count sum");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> a(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> b(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> c(LazySequence<int>::Naturals());
+            UniquePtr<LazySequence<int>> d(LazySequence<int>::Naturals());
+
+            const Sequence<int>* sources[] = {
+                a.get(),
+                b.get(),
+                c.get(),
+                d.get()
+            };
+
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 4));
+
+            AssertTrue(
+                result->GetOrdinalLength() == Ordinal::Omega(),
+                "Interleave 4 omega length");
+            AssertEqual(result->Get(0), 0, "Interleave 4 item 0");
+            AssertEqual(result->Get(1), 0, "Interleave 4 item 1");
+            AssertEqual(result->Get(2), 0, "Interleave 4 item 2");
+            AssertEqual(result->Get(3), 0, "Interleave 4 item 3");
+            AssertEqual(result->Get(4), 1, "Interleave 4 item 4");
+            AssertEqual(result->Get(9), 2, "Interleave 4 item 9");
+        }
+
+        {
+            UniquePtr<LazySequence<int>> a0(LazySequence<int>::Naturals());
+            UniquePtr<Sequence<int>> a1_base(a0->Append(100));
+            LazySequence<int>* a1 =
+                dynamic_cast<LazySequence<int>*>(a1_base.get());
+            AssertTrue(a1 != nullptr, "Interleave first omega+1 type");
+
+            UniquePtr<Sequence<int>> a2_base(a1->Append(200));
+            LazySequence<int>* a2 =
+                dynamic_cast<LazySequence<int>*>(a2_base.get());
+            AssertTrue(a2 != nullptr, "Interleave first omega+2 type");
+
+            UniquePtr<LazySequence<int>> b0(LazySequence<int>::Naturals());
+            UniquePtr<Sequence<int>> b1_base(b0->Append(300));
+            LazySequence<int>* b1 =
+                dynamic_cast<LazySequence<int>*>(b1_base.get());
+            AssertTrue(b1 != nullptr, "Interleave second omega+1 type");
+
+            UniquePtr<Sequence<int>> b2_base(b1->Append(400));
+            LazySequence<int>* b2 =
+                dynamic_cast<LazySequence<int>*>(b2_base.get());
+            AssertTrue(b2 != nullptr, "Interleave second omega+2 type");
+
+            const Sequence<int>* sources[] = {a2, b2};
+
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 2));
+
+            AssertTrue(
+                result->GetOrdinalLength() == Ordinal::OmegaPlus(4),
+                "Interleave omega+2 length");
+            AssertEqual(
+                result->Get(Ordinal::Omega()),
+                100,
+                "Interleave omega tail first source first tail");
+            AssertEqual(
+                result->Get(Ordinal::OmegaPlus(1)),
+                300,
+                "Interleave omega tail second source first tail");
+            AssertEqual(
+                result->Get(Ordinal::OmegaPlus(2)),
+                200,
+                "Interleave omega tail first source second tail");
+            AssertEqual(
+                result->Get(Ordinal::OmegaPlus(3)),
+                400,
+                "Interleave omega tail second source second tail");
+        }
+
+        {
+            int a_items[] = {1, 2};
+            int b_items[] = {10, 20};
+            int c_items[] = {100, 200};
+
+            LazySequence<int> a(a_items, 2);
+            LazySequence<int> b(b_items, 2);
+            LazySequence<int> c(c_items, 2);
+
+            const Sequence<int>* others[] = {&b, &c};
+
+            UniquePtr<LazySequence<int>> result(
+                a.InterleaveWith(others, 2));
+
+            int expected[] = {1, 10, 100, 2, 20, 200};
+
+            for (int index = 0; index < 6; index++)
+            {
+                AssertEqual(
+                    result->Get(index),
+                    expected[index],
+                    "InterleaveWith item");
+            }
+        }
+
+        {
+            int lazy_items[] = {1, 2};
+            int mutable_items[] = {10, 20};
+
+            LazySequence<int> lazy(lazy_items, 2);
+            MutableArraySequence<int> mutable_sequence(mutable_items, 2);
+
+            const Sequence<int>* sources[] = {&lazy, &mutable_sequence};
+            UniquePtr<LazySequence<int>> result(
+                LazySequence<int>::Interleave(sources, 2));
+
+            mutable_sequence.Prepend(999);
+
+            AssertEqual(
+                result->Get(1),
+                10,
+                "Interleave must copy non-lazy mutable Sequence");
+        }
+
+        AssertThrowsExact<std::invalid_argument>(
+            []() { LazySequence<int>::Interleave(nullptr, 1); },
+            "Interleave null source array must throw");
+
+        const Sequence<int>** null_sources = nullptr;
+
+        AssertThrowsExact<std::invalid_argument>(
+            [null_sources]() {
+                LazySequence<int>::Interleave(null_sources, 0);
+            },
+            "Interleave zero count must throw");
+
+        {
+            int items[] = {1};
+            LazySequence<int> sequence(items, 1);
+            const Sequence<int>* sources[] = {&sequence, nullptr};
+
+            AssertThrowsExact<std::invalid_argument>(
+                [&sources]() {
+                    LazySequence<int>::Interleave(sources, 2);
+                },
+                "Interleave null source must throw");
+        }
+    }
+
     void TestLazySequenceInsertAtFinite()
     {
         int items[] = {1, 2, 3};
@@ -1040,6 +1493,9 @@ void RunAllTests()
     TestConcatNodeAndLazySequence();
     TestLazySequence();
     TestLazySequenceMap();
+    TestLazySequenceZip();
+    TestLazySequenceUnzip();
+    TestLazySequenceInterleave();
     TestLazySequenceInsertAtFinite();
     TestLazySequenceInsertAtInfinite();
     TestLazySequenceInsertAtSharesCache();
